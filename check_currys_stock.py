@@ -1,5 +1,4 @@
-import requests
-from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 import smtplib
 import ssl
 from email.mime.text import MIMEText
@@ -12,50 +11,35 @@ EMAIL_RECEIVER = "your_email_here@gmail.com"
 EMAIL_PASSWORD = "USE_GITHUB_SECRET"
 
 def check_stock():
-    print("Fetching Currys page...")
+    print("Launching browser...")
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
-        "Accept-Language": "en-GB,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Referer": "https://www.currys.co.uk/",
-    }
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
 
-    # Dummy cookie to bypass Akamai bot protection
-    cookies = {
-        "aka_debug": "true",
-        "session": "123456"
-    }
+        print("Fetching Currys page...")
+        page.goto(CURRYS_URL, timeout=60000)
 
-    try:
-        response = requests.get(CURRYS_URL, headers=headers, cookies=cookies, timeout=10)
-    except Exception as e:
-        print(f"Request failed: {e}")
-        return False, []
+        # Wait for product tiles to load
+        page.wait_for_selector("div.product", timeout=30000)
 
-    print(f"HTTP status: {response.status_code}")
+        products = page.query_selector_all("div.product")
 
-    if response.status_code != 200:
-        print(f"Error fetching page: {response.status_code}")
-        return False, []
+        in_stock_items = []
 
-    soup = BeautifulSoup(response.text, "html.parser")
+        for product in products:
+            title = product.query_selector("h3")
+            stock = product.query_selector("p.availability")
 
-    products = soup.find_all("div", class_="product")
+            title_text = title.inner_text().strip() if title else "Unknown product"
+            stock_text = stock.inner_text().strip() if stock else "Unknown"
 
-    in_stock_items = []
+            if "in stock" in stock_text.lower() or "available" in stock_text.lower():
+                in_stock_items.append(title_text)
 
-    for product in products:
-        title_tag = product.find("h3")
-        stock_tag = product.find("p", class_="availability")
+        browser.close()
 
-        title = title_tag.text.strip() if title_tag else "Unknown product"
-        stock = stock_tag.text.strip() if stock_tag else "Unknown"
-
-        if "in stock" in stock.lower() or "available" in stock.lower():
-            in_stock_items.append(title)
-
-    return len(in_stock_items) > 0, in_stock_items
+        return len(in_stock_items) > 0, in_stock_items
 
 
 def send_email(stock_items):
@@ -88,5 +72,3 @@ if __name__ == "__main__":
         send_email(items)
     else:
         print("No stock found.")
-
-
