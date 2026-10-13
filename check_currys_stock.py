@@ -14,26 +14,30 @@ def check_stock():
     print("Launching browser...")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        # Run in non-headless mode to avoid Akamai bot detection
+        browser = p.chromium.launch(headless=False)
         page = browser.new_page()
 
         print("Fetching Currys page...")
         page.goto(CURRYS_URL, timeout=60000)
 
-        # Wait for product tiles to load
-        page.wait_for_selector("div.product", timeout=30000)
-
-        products = page.query_selector_all("div.product")
+        # Wait for actual product tiles used by Currys
+        page.wait_for_selector("article[data-product-id]", timeout=30000)
+        products = page.query_selector_all("article[data-product-id]")
 
         in_stock_items = []
 
         for product in products:
-            title = product.query_selector("h3")
-            stock = product.query_selector("p.availability")
+            # Product title (Currys uses h2 or h3)
+            title = product.query_selector("h3, h2")
+
+            # Stock message (Currys uses span[data-stock-message] or p.availability)
+            stock = product.query_selector("span[data-stock-message], p.availability")
 
             title_text = title.inner_text().strip() if title else "Unknown product"
             stock_text = stock.inner_text().strip() if stock else "Unknown"
 
+            # Basic stock check
             if "in stock" in stock_text.lower() or "available" in stock_text.lower():
                 in_stock_items.append(title_text)
 
